@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pronóstico de Ventas y Cálculo de Stock</title>
+
+<style>
+  body { font-family:'Segoe UI', sans-serif; background:#f4f6f9; color:#333; margin:40px; }
+  h1, h2, h3 { text-align:center; color:#003366; }
+  .contenedor { max-width:1000px; margin:auto; background:#fff; padding:30px; border-radius:12px; box-shadow:0 3px 10px rgba(0,0,0,0.1); }
+  table { width:100%; border-collapse:collapse; margin-top:15px; font-size:15px; }
+  th, td { border:1px solid #ccc; padding:8px; text-align:center; }
+  th { background:#003366; color:#fff; }
+  tr:nth-child(even){ background:#f0f4f8; }
+  input[type="number"] { width:80px; padding:5px; text-align:center; border:1px solid #ccc; border-radius:5px; }
+  .btn { display:block; margin:20px auto; background:#005fa3; color:white; border:none; padding:10px 25px; font-size:16px; cursor:pointer; border-radius:5px; transition:0.3s; }
+  .btn:hover { background:#0073d1; }
+  .result { margin-top:20px; padding:12px; border-radius:5px; font-size:16px; text-align:center; }
+  .ok { background:#d4edda; color:#155724; border:1px solid #c3e6cb; }
+  .warn { background:#fff3cd; color:#856404; border:1px solid #ffeeba; }
+  .error { background:#f8d7da; color:#721c24; border:1px solid #f5c6cb; }
+  .resumen { margin-top:20px; background:#eaf2f8; border-radius:10px; padding:15px; }
+  .resumen p { margin:6px 0; font-size:16px; }
+
+  /* Estilo de la tabla BOM */
+  .bom-table { 
+    width: 100%; 
+    max-width: 980px; 
+    border-collapse: collapse; 
+    font-family: Arial, Helvetica, sans-serif;
+    margin: 16px 0;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+  }
+  .bom-table caption {
+    text-align: left;
+    font-weight: 700;
+    font-size: 1.05rem;
+    margin-bottom: 8px;
+    color: #222;
+  }
+  .bom-table th, .bom-table td {
+    padding: 10px 12px;
+    border-bottom: 1px solid #e6e6e6;
+    text-align: left;
+    font-size: 0.95rem;
+  }
+  .bom-table thead th {
+    background: linear-gradient(90deg,#2b7cff,#005bd6);
+    color: #fff;
+    font-weight: 700;
+    border-bottom: 2px solid rgba(0,0,0,0.08);
+  }
+  .bom-table tbody tr:nth-child(even) { background: #fbfdff; }
+  .bom-table tbody tr:hover { background: #eef6ff; }
+  .align-right { text-align: right; }
+  .muted { color: #666; font-size: 0.88rem; }
+  .total-row {
+    background: linear-gradient(90deg,#f7f7f7,#efefef);
+    font-weight: 700;
+  }
+  .note {
+    font-size: 0.88rem;
+    color: #444;
+    margin-top: 8px;
+    max-width: 980px;
+  }
+</style>
+</head>
+
+<body>
+
+<div class="contenedor">
+  <h1>Pronóstico de Ventas y Cálculo de Stock</h1>
+
+  <h3>Ventas de referencia (6 meses):</h3>
+  <div style="text-align:center;">
+    <input type="number" id="m1" placeholder="Mes 1">
+    <input type="number" id="m2" placeholder="Mes 2">
+    <input type="number" id="m3" placeholder="Mes 3">
+    <input type="number" id="m4" placeholder="Mes 4">
+    <input type="number" id="m5" placeholder="Mes 5">
+    <input type="number" id="m6" placeholder="Mes 6">
+  </div>
+
+  <h3>Producción mensual estimada:</h3>
+  <div style="text-align:center;">
+    <input type="number" id="prodMensual" placeholder="Unidades">
+  </div>
+
+  <h3>Producción anual real (ingresada por el usuario):</h3>
+  <div style="text-align:center;">
+    <input type="number" id="prodAnual" placeholder="Unidades">
+  </div>
+
+  <button class="btn" onclick="calcular()">Calcular Pronóstico y Stock</button>
+  <button class="btn" onclick="calcularEOQ()">Calcular EOQ</button>
+
+  <div id="resultado"></div>
+  <div id="resultadoEOQ"></div>
+
+</div>
+
+<script>
+/* ----------------------------- FUNCIÓN ORIGINAL ------------------------------- */
+function calcular() {
+  let ventasRef = [];
+  for (let i = 1; i <= 6; i++) ventasRef.push(parseInt(document.getElementById('m'+i).value) || 0);
+
+  let prodMensual = parseInt(document.getElementById('prodMensual').value) || 0;
+  let prodAnual = parseInt(document.getElementById('prodAnual').value) || 0;
+
+  let pronosticos = [];
+  let ventasTemp = [...ventasRef];
+  let prom = ventasTemp.reduce((a,b)=>a+b)/6;
+  pronosticos.push(Math.round(prom));
+
+  for (let i = 1; i < 12; i++) {
+    ventasTemp.shift();
+    ventasTemp.push(pronosticos[i-1]);
+    prom = ventasTemp.reduce((a,b)=>a+b)/6;
+    pronosticos.push(Math.round(prom));
+  }
+
+  let totalPronostico = pronosticos.reduce((a,b)=>a+b,0);
+  let stockInicial = Math.round(prodAnual * 0.05);
+  let prodEstimadaAnual = prodMensual * 12;
+
+  let tablaPronostico = "<h2>Tabla 1. Pronóstico de Ventas</h2><table><tr><th>Mes</th><th>Venta Pronosticada</th></tr>";
+  for (let i = 0; i < 12; i++) {
+    tablaPronostico += `<tr><td>${i+1}</td><td>${pronosticos[i]}</td></tr>`;
+  }
+  tablaPronostico += `<tr><th>Total</th><th>${totalPronostico}</th></tr></table>`;
+
+  let stock = stockInicial;
+  let tablaStock = "<h2>Tabla 2. Cálculo de Stock Mensual</h2><table><tr><th>Mes</th><th>Venta</th><th>Producción</th><th>Stock Final</th></tr>";
+  for (let i = 0; i < 12; i++) {
+    let venta = pronosticos[i];
+    let diferencia = prodMensual - venta;
+    stock += diferencia;
+    tablaStock += `<tr><td>${i+1}</td><td>${venta}</td><td>${prodMensual}</td><td>${stock}</td></tr>`;
+  }
+  tablaStock += "</table>";
+
+  let diff = prodAnual - totalPronostico;
+  let mensaje = "";
+  let clase = "";
+  if (diff > 0) {
+    mensaje = `✅ La producción anual excede el pronóstico en ${diff} unidades.`;
+    clase = "ok";
+  } else if (diff < 0) {
+    mensaje = `⚠️ La producción anual es menor al pronóstico por ${Math.abs(diff)} unidades.`;
+    clase = "warn";
+  } else {
+    mensaje = `✅ La producción anual coincide exactamente con el pronóstico de ventas.`;
+    clase = "ok";
+  }
+
+  document.getElementById("resultado").innerHTML = `
+    ${tablaPronostico}
+    ${tablaStock}
+    <div class="resumen">
+      <h2>Resumen General</h2>
+      <p><b>Total pronóstico (12 meses):</b> ${totalPronostico} unidades</p>
+      <p><b>Producción anual ingresada:</b> ${prodAnual} unidades</p>
+      <p><b>Stock inicial (5% producción anual):</b> ${stockInicial} unidades</p>
+      <div class="result ${clase}">${mensaje}</div>
+    </div>
+  `;
+}
+
+/* ----------------------------- NUEVA FUNCIÓN EOQ ------------------------------- */
+function calcularEOQ() {
+
+  let D = parseFloat(prompt("Demanda anual (D):"));
+  let S = parseFloat(prompt("Costo por pedido (S):"));
+  let H = parseFloat(prompt("Costo de mantener inventario por unidad (H):"));
+
+  if (!D || !S || !H) {
+    alert("Todos los valores son obligatorios.");
+    return;
+  }
+
+  let EOQ = Math.sqrt((2 * D * S) / H);
+
+  let resultado = `
+    <h2>Resultado EOQ</h2>
+    <div class="result ok">
+      EOQ = <b>${EOQ.toFixed(2)}</b> unidades por pedido
+    </div>
+  `;
+
+  let tablaBOM = `
+  <table class="bom-table" aria-label="Lista de materiales Portex">
+  <caption>Lista de materiales (BOM) por unidad y totales anuales — Portex (D = 79 unidades)</caption>
+  <thead>
+    <tr>
+      <th>Ítem</th>
+      <th>Unidad</th>
+      <th class="align-right">Cantidad / Portex</th>
+      <th class="align-right">Costo unitario (MXN)</th>
+      <th class="align-right">Subtotal por unidad (MXN)</th>
+      <th class="align-right">Cantidad total (79 u)</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Opción A — Tubo</strong></td>
+      <td>m</td>
+      <td class="align-right">4.00</td>
+      <td class="align-right">$45.00</td>
+      <td class="align-right">$180.00</td>
+      <td class="align-right">316 m</td>
+    </tr>
+
+    <tr>
+      <td><strong>Opción B — Tubo</strong></td>
+      <td>m</td>
+      <td class="align-right">3.00</td>
+      <td class="align-right">$45.00</td>
+      <td class="align-right">$135.00</td>
+      <td class="align-right">237 m</td>
+    </tr>
+
+    <tr>
+      <td>Platina trapezoidal</td>
+      <td>pza</td>
+      <td class="align-right">2</td>
+      <td class="align-right">$20.00</td>
+      <td class="align-right">$40.00</td>
+      <td class="align-right">158 pz</td>
+    </tr>
+
+    <tr>
+      <td>Pernos con tuerca</td>
+      <td>pza</td>
+      <td class="align-right">2</td>
+      <td class="align-right">$15.00</td>
+      <td class="align-right">$30.00</td>
+      <td class="align-right">158 pz</td>
+    </tr>
+
+    <tr>
+      <td>Pintura (200 ml)</td>
+      <td>ml</td>
+      <td class="align-right">200</td>
+      <td class="align-right">$0.125 / ml</td>
+      <td class="align-right">$25.00</td>
+      <td class="align-right">15,800 ml (15.8 L)</td>
+    </tr>
+
+    <tr>
+      <td>Acolchado de goma</td>
+      <td>pza</td>
+      <td class="align-right">1</td>
+      <td class="align-right">$10.00</td>
+      <td class="align-right">$10.00</td>
+      <td class="align-right">79 pz</td>
+    </tr>
+
+    <!-- Totales para Opción A -->
+    <tr class="total-row">
+      <td colspan="4"><strong>TOTAL por unidad (Opción A - 4 m tubo)</strong></td>
+      <td class="align-right"><strong>$285.00</strong></td>
+      <td class="align-right"></td>
+    </tr>
+
+    <tr class="total-row">
+      <td colspan="4"><strong>TOTAL anual (Opción A)</strong></td>
+      <td class="align-right"><strong>$22,515.00</strong></td>
+      <td class="align-right"><strong>(79 × $285)</strong></td>
+    </tr>
+
+    <!-- Totales para Opción B -->
+    <tr class="total-row">
+      <td colspan="4"><strong>TOTAL por unidad (Opción B - 3 m tubo)</strong></td>
+      <td class="align-right"><strong>$240.00</strong></td>
+      <td class="align-right"></td>
+    </tr>
+
+    <tr class="total-row">
+      <td colspan="4"><strong>TOTAL anual (Opción B)</strong></td>
+      <td class="align-right"><strong>$18,960.00</strong></td>
+      <td class="align-right"><strong>(79 × $240)</strong></td>
+    </tr>
+  </tbody>
+  </table>
+
+  <div class="note">
+    <strong>Notas:</strong>
+    <ul style="margin:6px 0 0 18px; padding:0;">
+      <li class="muted">Los costos unitarios son estimados (MXN). Ajusta según cotizaciones reales de proveedor.</li>
+      <li class="muted">La columna "Cantidad total" muestra el consumo anual para D = 79 Portex/año.</li>
+      <li class="muted">Si confirmas que usas 3 m o 4 m por unidad, mantén la opción correspondiente para el MRP y cálculo EOQ.</li>
+    </ul>
+  </div>
+
+  <!-- Tabla EOQ por material (nueva versión) -->
+<style>
+.eoq-table{width:100%;max-width:980px;border-collapse:collapse;font-family:Arial,Helvetica,sans-serif;margin:12px 0;}
+.eoq-table th,.eoq-table td{padding:8px 10px;border:1px solid #e6e6e6;text-align:left;font-size:0.95rem;}
+.eoq-table thead th{background:#2b7cff;color:#fff;font-weight:700;}
+.eoq-table tbody tr:nth-child(even){background:#fbfdff;}
+.eoq-table .right{text-align:right;}
+.eoq-note{font-size:0.88rem;color:#333;max-width:980px;margin-top:8px;}
+</style>
+
+<table class="eoq-table" aria-label="EOQ por material Portex">
+  <caption style="text-align:left;font-weight:700;margin-bottom:6px;">EOQ por material — Portex (D anual basado en 79 Portex)</caption>
+  <thead>
+    <tr>
+      <th>Material</th>
+      <th>Unidad</th>
+      <th class="right">Demanda anual (D)</th>
+      <th class="right">Costo unitario</th>
+      <th class="right">S (MXN/pedido)</th>
+      <th class="right">H = 25% × costo (MXN/año)</th>
+      <th class="right">EOQ (unidad)</th>
+      <th class="right">Pedidos / año</th>
+      <th class="right">Equiv. Portex</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Tubo cuadrado</td>
+      <td>m</td>
+      <td class="right">237</td>
+      <td class="right">$45.00</td>
+      <td class="right">$150</td>
+      <td class="right">$11.25</td>
+      <td class="right"><strong>79 m</strong></td>
+      <td class="right">≈ 3.0</td>
+      <td class="right">≈ 26 Portex</td>
+    </tr>
+
+    <tr>
+      <td>Platina trapezoidal</td>
+      <td>pza</td>
+      <td class="right">158</td>
+      <td class="right">$20.00</td>
+      <td class="right">$150</td>
+      <td class="right">$5.00</td>
+      <td class="right"><strong>97 pzas</strong></td>
+      <td class="right">≈ 1.63</td>
+      <td class="right">—</td>
+    </tr>
+
+    <tr>
+      <td>Pernos M16</td>
+      <td>pza</td>
+      <td class="right">158</td>
+      <td class="right">$15.00</td>
+      <td class="right">$150</td>
+      <td class="right">$3.75</td>
+      <td class="right"><strong>112 pzas</strong></td>
+      <td class="right">≈ 1.41</td>
+      <td class="right">—</td>
+    </tr>
+
+    <tr>
+      <td>Pintura (base: ml)</td>
+      <td>ml</td>
+      <td class="right">15,800</td>
+      <td class="right">$0.125 / ml</td>
+      <td class="right">$150</td>
+      <td class="right">$0.0313</td>
+      <td class="right"><strong>12,317 ml</strong></td>
+      <td class="right">≈ 1.28</td>
+      <td class="right">≈ 61 Portex</td>
+    </tr>
+
+    <tr>
+      <td>Goma EVA (acolchado)</td>
+      <td>pza</td>
+      <td class="right">79</td>
+      <td class="right">$10.00</td>
+      <td class="right">$150</td>
+      <td class="right">$2.50</td>
+      <td class="right"><strong>97 pzas</strong></td>
+      <td class="right">≈ 0.81</td>
+      <td class="right">≈ 97 Portex</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="eoq-note">
+  <strong>Notas:</strong>
+  <ul style="margin:6px 0 0 18px;">
+    <li>Fórmula usada: <em>EOQ = sqrt(2·D·S / H)</em>. Sustituciones redondeadas para presentación.</li>
+    <li>H se calculó como 25% del costo unitario (puedes ajustar el % según política de inventario).</li>
+    <li>"Equiv. Portex" muestra cuántas unidades Portex cubre ese EOQ.</li>
+  </ul>
+</div>
+
+  `
+  ;
+
+  document.getElementById("resultadoEOQ").innerHTML = resultado + tablaBOM;
+}
+
+</script>
+
+</body>
+</html>
